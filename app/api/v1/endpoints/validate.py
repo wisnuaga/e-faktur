@@ -1,5 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from app.schemas import ValidationResults
+from app.schemas.validation import ValidationResults
+from app.services import pdf_extractor
+
 
 router = APIRouter()
 
@@ -12,6 +14,7 @@ async def validate_efaktur(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="No file provided")
 
         # Parse PDF/JPG fields
+        pdf_data = pdf_extractor.extract_fields(content)
 
         # Decode QR
 
