@@ -1,16 +1,15 @@
-from http.client import HTTPException
-
-from fastapi import APIRouter
-
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from schemas.validation import ValidationResults
 
 router = APIRouter()
 
 @router.get("/validate-efaktur", response_model=ValidationResults)
-async def validate_efaktur():
+async def validate_efaktur(file: UploadFile = File(...)):
     try:
         # File read
-        # TODO: ...
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="No file provided")
 
         # Parse PDF/JPG fields
 
