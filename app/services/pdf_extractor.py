@@ -84,3 +84,23 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
         if m: data["tanggalFaktur"] = normalize_date(m.group(0))
 
     return data
+
+def extract_qr_url(file_bytes: bytes) -> Optional[str]:
+    """Best-effort QR decode: rasterize 1st page and scan."""
+    try:
+        # Render first page to image using pdfplumber (based on vector text; low-res but ok for QR)
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            if not pdf.pages:
+                return None
+            page = pdf.pages[0]
+            # Use page.to_image().original which returns a PIL Image
+            pil = page.to_image(resolution=200).original
+            codes = qr_decode(pil)
+            for c in codes:
+                data = c.data.decode('utf-8', errors='ignore')
+                # Simple URL check
+                if data.startswith("http://") or data.startswith("https://"):
+                    return data
+    except Exception:
+        return None
+    return None
