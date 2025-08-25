@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 from typing import Any, List, Optional, Literal
 
@@ -20,10 +19,9 @@ class ValidatedData(BaseModel):
     jumlahPpn: Optional[str] = None
 
 class ValidationResults(BaseModel):
-    deviations: List[Deviation]
-    validated_data: ValidatedData
-
-class ValidationResponse(BaseModel):
     status: Literal["validated_with_deviations", "validated_successfully", "error"]
     message: str
-    validation_results: ValidationResults
+    validation_results: dict = {
+        "deviations": List[Deviation],
+        "validated_data": ValidatedData
+    }
