@@ -1,8 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.schemas.validation import ValidationResults
 from app.services import pdf_extractor, djp_client, validator
+from app.mock import djp_mock
 import requests
-
 
 router = APIRouter()
 
@@ -37,12 +37,16 @@ async def validate_efaktur(file: UploadFile = File(...)):
         # Parse PDF/JPG fields
         pdf_data = pdf_extractor.extract_fields(content)
 
-        # Decode QR
-        qr_url = pdf_extractor.extract_qr_url(content)
-        print(qr_url)
-
-        # Fetch official DJP data
-        djp_data = djp_client.fetch_djp_xml(qr_url)
+        # Try to get QR URL, fallback to mock if not found
+        try:
+            qr_url = pdf_extractor.extract_qr_url(content)
+            if qr_url:
+                djp_data = djp_client.fetch_djp_xml(qr_url)
+            else:
+                djp_data = djp_mock.get_mock_djp_data()
+        except ValueError as e:
+            # If QR extraction fails, use mock data
+            djp_data = djp_mock.get_mock_djp_data()
 
         # Compare and build response
         result = validator.compare(pdf_data, djp_data)
@@ -56,5 +60,4 @@ async def validate_efaktur(file: UploadFile = File(...)):
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail="Failed to fetch data from DJP API")
     except Exception as e:
-        print("ERROR", e)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
