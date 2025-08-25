@@ -249,21 +249,30 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
 
 def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str], Optional[str]]:
     """Extract NPWP and name information for either seller or buyer."""
-    label_key = "npwpPenjual" if section == "penjual" else "npwpPembeli"
-    name_key = "namaPenjual" if section == "penjual" else "namaPembeli"
+    sections = text.split('\n\n')
     
-    npwp = _find_after_label(text, LABELS[label_key], take_numeric=True)
-    name = _find_after_label(text, LABELS[name_key])
+    # Define section indices based on role
+    target_section = 3 if section == "penjual" else 5
+    if len(sections) <= target_section:
+        return None, None
     
-    if not npwp:
-        # Try to find NPWP in the general text
-        npwps = list(re.finditer(r'(\d{2}[.-]\d{3}[.-]\d{3}[.-]\d{1}[.-]\d{3}[.-]\d{3})', text))
-        if npwps:
-            idx = 0 if section == "penjual" else 1
-            if len(npwps) > idx:
-                npwp = re.sub(r'[.-]', '', npwps[idx].group(1))
+    section_text = sections[target_section]
     
-    return normalize_npwp(npwp) if npwp else None, name
+    # Look for NPWP pattern specifically after "NPWP: "
+    npwp_match = re.search(r'NPWP\s*:\s*([0-9.-]+)', section_text)
+    
+    npwp = None
+    if npwp_match:
+        # Get the raw NPWP and remove any existing dots and dashes to normalize it
+        npwp = re.sub(r'[.-]', '', npwp_match.group(1))
+        if len(npwp) != 15:
+            npwp = None
+    
+    # Get name from the same section, looking for "Nama :"
+    name_match = re.search(r'Nama\s*:\s*([^\n]+)', section_text)
+    name = clean_value(name_match.group(1)) if name_match else None
+    
+    return npwp, name
 
 def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract faktur number and date information."""
