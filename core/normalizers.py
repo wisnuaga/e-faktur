@@ -29,3 +29,5 @@ def normalize_npwp(value: str) -> Optional[str]:
         return None
     return normalize_number(value)
 
+def normalize_faktur_number(value: str) -> Optional[str]:
+    return normalize_number(value)
