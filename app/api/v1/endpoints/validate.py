@@ -1,9 +1,27 @@
+from http.client import HTTPException
+
 from fastapi import APIRouter
 
-import schemas
+from schemas.validation import ValidationResults
 
 router = APIRouter()
 
-@router.get("/validate-efaktur")
+@router.get("/validate-efaktur", response_model=ValidationResults)
 async def validate_efaktur():
-    pass
+    try:
+        # File read
+        # TODO: ...
+
+        # Parse PDF/JPG fields
+
+        # Decode QR
+
+        # Fetch official DJP data
+
+        # Compare and build response
+
+        pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
