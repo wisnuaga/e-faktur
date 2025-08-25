@@ -300,21 +300,43 @@ def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str
 
 def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract faktur number and date information."""
+    # Extract nomor faktur
     nomor = extract_nomor_faktur(text)
     if not nomor:
         m = RE_FAKTUR_NUMBER.search(text)
         if m:
             nomor = m.group(0)
     
-    tanggal = _find_after_label(text, LABELS["tanggalFaktur"])
+    # Extract date from section 9
+    sections = text.split('\n\n')
+    tanggal = None
+    if len(sections) > 9:
+        section_text = sections[9].strip()
+        if "JAKARTA SELATAN" in section_text.upper():
+            tanggal = format_date_from_text(section_text)
+    
+    # Fallback methods if section 9 doesn't work
     if not tanggal:
-        m = RE_DATE.search(text)
-        if m:
-            tanggal = m.group(0)
+        # Try other sections
+        for section in sections:
+            if "JAKARTA SELATAN" in section.upper():
+                tanggal = format_date_from_text(section)
+                if tanggal:
+                    break
+        
+        # Try original methods as last resort
+        if not tanggal:
+            raw_date = _find_after_label(text, LABELS["tanggalFaktur"])
+            if raw_date:
+                tanggal = format_date_from_text(raw_date)
+            else:
+                m = RE_DATE.search(text)
+                if m:
+                    tanggal = normalize_date(m.group(0))
     
     return (
         normalize_faktur_number(nomor) if nomor else None,
-        normalize_date(tanggal) if tanggal else None
+        tanggal
     )
 
 def extract_amounts(text: str) -> Tuple[Optional[str], Optional[str]]:
@@ -326,5 +348,39 @@ def extract_amounts(text: str) -> Tuple[Optional[str], Optional[str]]:
         normalize_number(dpp) if dpp else None,
         normalize_number(ppn) if ppn else None
     )
+
+def format_date_from_text(date_text: str) -> Optional[str]:
+    """Convert date from 'DD MONTH YYYY' format to 'DD/MM/YYYY'."""
+    MONTH_MAP = {
+        'JANUARI': '01', 'JANUARY': '01',
+        'FEBRUARI': '02', 'FEBRUARY': '02',
+        'MARET': '03', 'MARCH': '03',
+        'APRIL': '04',
+        'MEI': '05', 'MAY': '05',
+        'JUNI': '06', 'JUNE': '06',
+        'JULI': '07', 'JULY': '07',
+        'AGUSTUS': '08', 'AUGUST': '08',
+        'SEPTEMBER': '09',
+        'OKTOBER': '10', 'OCTOBER': '10',
+        'NOVEMBER': '11',
+        'DESEMBER': '12', 'DECEMBER': '12'
+    }
+    
+    try:
+        # Remove city name and comma if present
+        date_text = re.sub(r'^.*?,\s*', '', date_text.strip())
+        
+        # Extract components using regex
+        match = re.search(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', date_text.upper())
+        if match:
+            day, month_name, year = match.groups()
+            month = MONTH_MAP.get(month_name.upper())
+            if month:
+                # Ensure day is two digits
+                day = day.zfill(2)
+                return f"{day}/{month}/{year}"
+    except Exception:
+        pass
+    return None
 
 
