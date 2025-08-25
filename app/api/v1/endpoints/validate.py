@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.schemas.validation import ValidationResults
-from app.services import pdf_extractor
+from app.services import pdf_extractor, djp_client
 
 
 router = APIRouter()
@@ -20,6 +20,7 @@ async def validate_efaktur(file: UploadFile = File(...)):
         qr_url = pdf_extractor.extract_qr_url(content)
 
         # Fetch official DJP data
+        djp_data = djp_client.fetch_djp_xml(qr_url)
 
         # Compare and build response
 
