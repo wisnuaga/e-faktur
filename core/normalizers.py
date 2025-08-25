@@ -23,3 +23,9 @@ def normalize_date(value: str) -> Optional[str]:
         return dt.strftime("%d/%m/%Y")
     except ValueError:
         return None
+
+def normalize_npwp(value: str) -> Optional[str]:
+    if not value:
+        return None
+    return normalize_number(value)
+
