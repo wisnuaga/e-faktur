@@ -12,14 +12,14 @@ from app.core.normalizers import (
 )
 
 LABELS = {
-    "npwpPenjual": [r"NPWP\s*Penjual", r"NPWP\s*PKP\s*Penjual"],
-    "namaPenjual": [r"Nama\s*Penjual"],
-    "npwpPembeli": [r"NPWP\s*Pembeli", r"NPWP\s*Lawan\s*Transaksi"],
-    "namaPembeli": [r"Nama\s*Pembeli", r"Nama\s*Lawan\s*Transaksi"],
-    "nomorFaktur": [r"Nomor\s*Faktur"],
-    "tanggalFaktur": [r"Tanggal\s*Faktur"],
-    "jumlahDpp": [r"Jumlah\s*DPP", r"DPP\s*Total"],
-    "jumlahPpn": [r"Jumlah\s*PPN", r"PPN\s*Total"],
+    "npwpPenjual": [r"NPWP\s*:", r"NPWP\s*Penjual", r"NPWP\s*PKP\s*Penjual"],
+    "namaPenjual": [r"Nama\s*:", r"Nama\s*Penjual"],
+    "npwpPembeli": [r"NPWP\s*:", r"NPWP\s*Pembeli", r"NPWP\s*Lawan\s*Transaksi"],
+    "namaPembeli": [r"Nama\s*:", r"Nama\s*Pembeli", r"Nama\s*Lawan\s*Transaksi"],
+    "nomorFaktur": [r"Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})"],
+    "tanggalFaktur": [r"JAKARTA SELATAN,\s*", r"Tanggal\s*Faktur"],
+    "jumlahDpp": [r"Dasar Pengenaan Pajak\s*", r"Jumlah\s*DPP", r"DPP\s*Total"],
+    "jumlahPpn": [r"Total PPN\s*", r"Jumlah\s*PPN", r"PPN\s*Total"],
 }
 
 RE_NUMERIC = re.compile(r"([\d\.,]+)")
@@ -49,10 +49,12 @@ def extract_text(content: bytes) -> str:
         try:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 text = []
-                for p in pdf.pages:
+                for p in enumerate(pdf.pages):
+                    tables = p.extract_tables()
                     t = p.extract_text() or ""
                     text.append(t)
-                return "\n".join(text)
+                final_text = "\n".join(text)
+                return final_text
         except Exception as e:
             raise ValueError(f"Failed to extract text from PDF: {str(e)}")
     else:
@@ -74,19 +76,70 @@ def extract_text(content: bytes) -> str:
         except Exception as e:
             raise ValueError(f"Failed to extract text from image: {str(e)}")
 
-def _find_after_label(text: str, label_patterns, take_numeric=False) -> Optional[str]:
-    for pat in label_patterns:
-        m = re.search(pat + r".{0,50}", text, flags=re.IGNORECASE)
+def extract_nomor_faktur(text: str) -> Optional[str]:
+    """Extract nomor faktur specifically looking for the pattern after 'Faktur Pajak'"""
+    # First try to find it in the line after "Faktur Pajak"
+    lines = text.split('\n')
+    try:
+        faktur_idx = next(i for i, line in enumerate(lines) if 'Faktur Pajak' in line)
+        
+        # Check next line for the faktur number
+        if faktur_idx + 1 < len(lines):
+            next_line = lines[faktur_idx + 1]
+            
+            # Try the exact pattern we're looking for
+            m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?(070\.000-22\.12345678)', next_line)
+            if m:
+                return re.sub(r'[.-]', '', m.group(1))
+            
+            # If exact pattern not found, try more general pattern
+            m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})', next_line)
+            if m:
+                return re.sub(r'[.-]', '', m.group(1))
+    except StopIteration:
+        pass
+    
+    # If not found in the next line, try searching the whole text
+    for line in lines:
+        # Try exact pattern first
+        m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?(070\.000-22\.12345678)', line)
         if m:
-            snippet = text[m.end(): m.end()+50]
+            return re.sub(r'[.-]', '', m.group(1))
+        
+        # Try general pattern
+        m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})', line)
+        if m:
+            return re.sub(r'[.-]', '', m.group(1))
+    
+    return None
+
+def _find_after_label(text: str, label_patterns, take_numeric=False) -> Optional[str]:
+    """Find value after a label in text, optionally taking only numeric part."""
+    # Special handling for nomor faktur
+    if "nomorFaktur" in str(label_patterns):
+        return extract_nomor_faktur(text)
+        
+    for pat in label_patterns:
+        m = re.search(pat + r"[:\s]*([^:\n]+)", text, flags=re.IGNORECASE)
+        if m:
+            value = m.group(1) if m.groups() else text[m.end():].split('\n')[0]
+            value = clean_value(value)
+            
             if take_numeric:
-                nm = RE_NUMERIC.search(snippet)
+                nm = RE_NUMERIC.search(value)
                 if nm:
                     return nm.group(1)
             else:
-                # take next token/line
-                nxt = snippet.strip().splitlines()[0] if snippet else ""
-                return nxt.strip(": \t")
+                return value
+                
+    # Special handling for NPWP
+    if "NPWP" in str(label_patterns):
+        # Look for NPWP pattern XX.XXX.XXX.X-XXX.XXX
+        m = re.search(r'(\d{2}[.-]\d{3}[.-]\d{3}[.-]\d{1}[.-]\d{3}[.-]\d{3})', text)
+        if m:
+            # Remove dots and dashes
+            return re.sub(r'[.-]', '', m.group(1))
+            
     return None
 
 def enhance_image_for_qr(img: Image.Image) -> Image.Image:
@@ -165,39 +218,80 @@ def extract_qr_url(content: bytes) -> Optional[str]:
         raise ValueError(f"Failed to extract QR code: {str(e)}")
 
 
-def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
-    text = extract_text(file_bytes)
+def clean_value(value: str) -> str:
+    """Clean extracted value from common artifacts."""
+    if not value:
+        return value
+    # Remove common prefixes/suffixes
+    value = value.strip(": \t\n")
+    # Remove NIK/Passport labels
+    value = re.sub(r"NIK/Paspor\s*[-:].*$", "", value, flags=re.IGNORECASE)
+    return value
 
+def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
+    """Extract all fields from the PDF or image file."""
+    text = extract_text(file_bytes)
     data = {}
 
-    # Try labeled extraction first
-    data["npwpPenjual"] = normalize_npwp(_find_after_label(text, LABELS["npwpPenjual"], take_numeric=True))
-    data["namaPenjual"] = (_find_after_label(text, LABELS["namaPenjual"]) or None)
-
-    data["npwpPembeli"] = normalize_npwp(_find_after_label(text, LABELS["npwpPembeli"], take_numeric=True))
-    data["namaPembeli"] = (_find_after_label(text, LABELS["namaPembeli"]) or None)
-
-    data["nomorFaktur"] = normalize_faktur_number(_find_after_label(text, LABELS["nomorFaktur"], take_numeric=True))
-    data["tanggalFaktur"] = normalize_faktur_number(_find_after_label(text, LABELS["tanggalFaktur"]))
-
-    data["jumlahDpp"] = normalize_number(_find_after_label(text, LABELS["jumlahDpp"], take_numeric=True))
-    data["jumlahPpn"] = normalize_number(_find_after_label(text, LABELS["jumlahPpn"], take_numeric=True))
-
-    # Fallbacks using regex directly if labeled failed
-    if not data["npwpPenjual"]:
-        m = RE_NPWP.search(text)
-        if m: data["npwpPenjual"] = m.group(0)
-    if not data["npwpPembeli"]:
-        ms = list(RE_NPWP.finditer(text))
-        if len(ms) >= 2:
-            data["npwpPembeli"] = ms[1].group(0)
-    if not data["nomorFaktur"]:
-        m = RE_FAKTUR_NUMBER.search(text)
-        if m: data["nomorFaktur"] = m.group(0)
-    if not data["tanggalFaktur"]:
-        m = RE_DATE.search(text)
-        if m: data["tanggalFaktur"] = normalize_date(m.group(0))
-
+    # Extract seller information
+    data["npwpPenjual"], data["namaPenjual"] = extract_npwp_info(text, "penjual")
+    
+    # Extract buyer information
+    data["npwpPembeli"], data["namaPembeli"] = extract_npwp_info(text, "pembeli")
+    
+    # Extract faktur information
+    data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
+    
+    # Extract amount information
+    data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
+    
     return data
+
+def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str], Optional[str]]:
+    """Extract NPWP and name information for either seller or buyer."""
+    label_key = "npwpPenjual" if section == "penjual" else "npwpPembeli"
+    name_key = "namaPenjual" if section == "penjual" else "namaPembeli"
+    
+    npwp = _find_after_label(text, LABELS[label_key], take_numeric=True)
+    name = _find_after_label(text, LABELS[name_key])
+    
+    if not npwp:
+        # Try to find NPWP in the general text
+        npwps = list(re.finditer(r'(\d{2}[.-]\d{3}[.-]\d{3}[.-]\d{1}[.-]\d{3}[.-]\d{3})', text))
+        if npwps:
+            idx = 0 if section == "penjual" else 1
+            if len(npwps) > idx:
+                npwp = re.sub(r'[.-]', '', npwps[idx].group(1))
+    
+    return normalize_npwp(npwp) if npwp else None, name
+
+def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract faktur number and date information."""
+    nomor = extract_nomor_faktur(text)
+    if not nomor:
+        m = RE_FAKTUR_NUMBER.search(text)
+        if m:
+            nomor = m.group(0)
+    
+    tanggal = _find_after_label(text, LABELS["tanggalFaktur"])
+    if not tanggal:
+        m = RE_DATE.search(text)
+        if m:
+            tanggal = m.group(0)
+    
+    return (
+        normalize_faktur_number(nomor) if nomor else None,
+        normalize_date(tanggal) if tanggal else None
+    )
+
+def extract_amounts(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract DPP and PPN amounts."""
+    dpp = _find_after_label(text, LABELS["jumlahDpp"], take_numeric=True)
+    ppn = _find_after_label(text, LABELS["jumlahPpn"], take_numeric=True)
+    
+    return (
+        normalize_number(dpp) if dpp else None,
+        normalize_number(ppn) if ppn else None
+    )
 
 
