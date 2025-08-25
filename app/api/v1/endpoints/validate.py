@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from schemas.validation import ValidationResults
+from app.schemas import ValidationResults
 
 router = APIRouter()
 
