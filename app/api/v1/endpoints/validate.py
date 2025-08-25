@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.schemas.validation import ValidationResults
-from app.services import pdf_extractor, djp_client
+from app.services import pdf_extractor, djp_client, validator
 
 
 router = APIRouter()
@@ -23,8 +23,8 @@ async def validate_efaktur(file: UploadFile = File(...)):
         djp_data = djp_client.fetch_djp_xml(qr_url)
 
         # Compare and build response
-
-        pass
+        result = validator.compare(pdf_data, djp_data)
+        return result
     except HTTPException:
         raise
     except Exception as e:
