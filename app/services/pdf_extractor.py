@@ -49,11 +49,23 @@ def extract_text(content: bytes) -> str:
         try:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 text = []
-                for p in enumerate(pdf.pages):
-                    tables = p.extract_tables()
-                    t = p.extract_text() or ""
-                    text.append(t)
-                final_text = "\n".join(text)
+                for page in pdf.pages:
+                    # Extract text from the page
+                    page_text = page.extract_text() or ""
+                    text.append(page_text)
+                    
+                    # Try to extract tables if any
+                    try:
+                        tables = page.extract_tables()
+                        if tables:
+                            for table in tables:
+                                table_text = '\n'.join(' '.join(str(cell) for cell in row if cell) for row in table)
+                                if table_text.strip():
+                                    text.append(table_text)
+                    except Exception:
+                        pass  # Skip if table extraction fails
+                
+                final_text = '\n\n'.join(filter(None, text))
                 return final_text
         except Exception as e:
             raise ValueError(f"Failed to extract text from PDF: {str(e)}")
@@ -224,8 +236,10 @@ def clean_value(value: str) -> str:
         return value
     # Remove common prefixes/suffixes
     value = value.strip(": \t\n")
-    # Remove NIK/Passport labels
-    value = re.sub(r"NIK/Paspor\s*[-:].*$", "", value, flags=re.IGNORECASE)
+    # Remove NIK/Passport and any text after it (including variations of NIK formatting)
+    value = re.sub(r'\s*(?:NIK|NIK/Paspor|NIKIPaspor)[^a-zA-Z]*.*$', '', value, flags=re.IGNORECASE)
+    # Remove any trailing special characters or whitespace
+    value = value.strip('.- \t\n')
     return value
 
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
@@ -270,7 +284,17 @@ def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str
     
     # Get name from the same section, looking for "Nama :"
     name_match = re.search(r'Nama\s*:\s*([^\n]+)', section_text)
-    name = clean_value(name_match.group(1)) if name_match else None
+    name = None
+    if name_match:
+        # First clean the value to remove NIK and other unwanted parts
+        name = clean_value(name_match.group(1))
+        if name:
+            # Format company names starting with PT
+            if name.startswith('PT') and not name.startswith('PT '):
+                # Insert space after PT if it's not there
+                name = re.sub(r'^PT(?=[A-Z])', 'PT ', name)
+            # Final cleanup of any remaining artifacts
+            name = name.strip()
     
     return npwp, name
 
