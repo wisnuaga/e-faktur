@@ -17,6 +17,7 @@ async def validate_efaktur(file: UploadFile = File(...)):
         pdf_data = pdf_extractor.extract_fields(content)
 
         # Decode QR
+        qr_url = pdf_extractor.extract_qr_url(content)
 
         # Fetch official DJP data
 
