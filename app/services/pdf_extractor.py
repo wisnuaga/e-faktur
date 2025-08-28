@@ -3,7 +3,7 @@ import re
 import pdfplumber
 from PIL import Image, ImageEnhance
 from pyzbar.pyzbar import decode
-from typing import Optional, Dict, Union, Tuple, List
+from typing import Optional, Dict, List
 from datetime import datetime
 from app.core.normalizers import (
     normalize_number,
@@ -19,21 +19,31 @@ RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
 RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
 RE_PPN = r"PPN\s*[-=]?\s*[^0-9\n]*([\d\.\,]+)"
 
+# Extractor
+def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
+    """Extract all fields from the PDF or image file."""
+    text = extract_text(file_bytes)
+    data = {}
 
-def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
-    """Preprocess image for better OCR results."""
-    # Convert to grayscale
-    img = img.convert('L')
-    
-    # Enhance contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(1.5)
-    
-    # Enhance sharpness
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(1.5)
-    
-    return img
+    # Extract NPWP numbers
+    npwp_numbers = extract_npwp_info(text)
+    data["npwpPenjual"] = npwp_numbers[0] if len(npwp_numbers) >= 2 else None
+    data["npwpPembeli"] = npwp_numbers[1] if len(npwp_numbers) >= 2 else None
+
+    # Extract Buyer and Seller Names
+    tax_subjects = extract_tax_subject_info(text)
+    data["namaPenjual"] = tax_subjects[0]['name'] if len(tax_subjects) >= 2 else None
+    data["namaPembeli"] = tax_subjects[1]['name'] if len(tax_subjects) >= 2 else None
+
+    # Extract faktur information
+    data["nomorFaktur"] = extract_faktur_number_info(text)
+    data["tanggalFaktur"] = extract_faktur_date_info(text)
+
+    # Extract amount information
+    data["jumlahDpp"] = extract_dpp_info(text)
+    data["jumlahPpn"] = extract_dpp_info(text)
+
+    return data
 
 def extract_text(content: bytes) -> str:
     """Extract text content from PDF or image file."""
@@ -49,7 +59,7 @@ def extract_text(content: bytes) -> str:
                             text.append(txt.strip())
                     except Exception:
                         pass  # Skip if table extraction fails
-                
+
                 final_text = '\n\n'.join(filter(None, text))
                 return final_text
         except Exception as e:
@@ -59,10 +69,10 @@ def extract_text(content: bytes) -> str:
             # For images, use Tesseract OCR
             import pytesseract
             img = Image.open(io.BytesIO(content))
-            
+
             # Preprocess the image
             img = preprocess_image_for_ocr(img)
-            
+
             # Extract text using OCR
             text = pytesseract.image_to_string(img, lang='ind')
             if not text.strip():
@@ -72,21 +82,6 @@ def extract_text(content: bytes) -> str:
             raise ValueError("pytesseract is not installed. Please install it first.")
         except Exception as e:
             raise ValueError(f"Failed to extract text from image: {str(e)}")
-
-def enhance_image_for_qr(img: Image.Image) -> Image.Image:
-    """Enhance image to improve QR code detection."""
-    # Convert to grayscale
-    img = img.convert('L')
-    
-    # Enhance contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
-    
-    # Enhance sharpness
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(2.0)
-    
-    return img
 
 def extract_qr_from_image(img: Image.Image) -> Optional[str]:
     """Try to extract QR code from an image with multiple preprocessing attempts."""
@@ -147,31 +142,6 @@ def extract_qr_url(content: bytes) -> Optional[str]:
         raise ValueError("No QR code found in the document")
     except Exception as e:
         raise ValueError(f"Failed to extract QR code: {str(e)}")
-
-def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
-    """Extract all fields from the PDF or image file."""
-    text = extract_text(file_bytes)
-    data = {}
-
-    # Extract NPWP numbers
-    npwp_numbers = extract_npwp_info(text)
-    data["npwpPenjual"] = npwp_numbers[0] if len(npwp_numbers) >= 2 else None
-    data["npwpPembeli"] = npwp_numbers[1] if len(npwp_numbers) >= 2 else None
-
-    # Extract Buyer and Seller Names
-    tax_subjects = extract_tax_subject_info(text)
-    data["namaPenjual"] = tax_subjects[0]['name'] if len(tax_subjects) >= 2 else None
-    data["namaPembeli"] = tax_subjects[1]['name'] if len(tax_subjects) >= 2 else None
-    
-    # Extract faktur information
-    data["nomorFaktur"] = extract_faktur_number_info(text)
-    data["tanggalFaktur"] = extract_faktur_date_info(text)
-    
-    # Extract amount information
-    data["jumlahDpp"] = extract_dpp_info(text)
-    data["jumlahPpn"] = extract_dpp_info(text)
-
-    return data
 
 def extract_dpp_info(text: str) -> float:
     """Extract DPP info from PDF or image file."""
@@ -246,3 +216,34 @@ def extract_tax_subject_info(text: str) -> List[dict]:
         })
 
     return results
+
+# Image Preprocessor
+def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
+    """Preprocess image for better OCR results."""
+    # Convert to grayscale
+    img = img.convert('L')
+
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(1.5)
+
+    # Enhance sharpness
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.5)
+
+    return img
+
+def enhance_image_for_qr(img: Image.Image) -> Image.Image:
+    """Enhance image to improve QR code detection."""
+    # Convert to grayscale
+    img = img.convert('L')
+
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+
+    # Enhance sharpness
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(2.0)
+
+    return img
