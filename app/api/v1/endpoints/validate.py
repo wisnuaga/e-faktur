@@ -40,7 +40,6 @@ async def validate_efaktur(file: UploadFile = File(...)):
         # Try to get QR URL, fallback to mock if not found
         try:
             qr_url = pdf_extractor.extract_qr_url(content)
-            print(qr_url)
             if qr_url:
                 djp_data = djp_client.fetch_djp_xml(qr_url)
             else:
