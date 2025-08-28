@@ -1,6 +1,5 @@
 import re
 from typing import Optional
-from datetime import datetime
 
 
 def normalize_number(value: str) -> Optional[str]:
