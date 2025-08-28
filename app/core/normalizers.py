@@ -44,27 +44,3 @@ def normalize_idr(amount_str: str) -> float:
         return amount
     except ValueError:
         return 0.0
-
-def normalize_indonesian_date(date_str: str):
-    # Mapping bulan Indo → angka
-    months = {
-        "januari": 1,
-        "februari": 2,
-        "maret": 3,
-        "april": 4,
-        "mei": 5,
-        "juni": 6,
-        "juli": 7,
-        "agustus": 8,
-        "september": 9,
-        "oktober": 10,
-        "november": 11,
-        "desember": 12,
-    }
-
-    parts = date_str.strip().split()
-    day = int(parts[0])
-    month = months[parts[1].lower()]
-    year = int(parts[2])
-
-    return datetime(year, month, day).date()

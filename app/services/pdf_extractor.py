@@ -19,6 +19,21 @@ RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
 RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
 RE_PPN = r"PPN.*?([\d\.]+,\d{2})"
 
+indonesian_months = {
+    "januari": "January",
+    "februari": "February",
+    "maret": "March",
+    "april": "April",
+    "mei": "May",
+    "juni": "June",
+    "juli": "July",
+    "agustus": "August",
+    "september": "September",
+    "oktober": "October",
+    "november": "November",
+    "desember": "December",
+}
+
 # Extractor
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     """Extract all fields from the PDF or image file."""
@@ -151,12 +166,13 @@ def extract_tax_amount(text: str, pattern: str) -> float:
         return val
     return 0.0
 
-def extract_faktur_date_info(text: str) -> datetime.date:
+def extract_faktur_date_info(text: str) -> Optional[datetime.date]:
     match = re.search(RE_FAKTUR_DATE, text)
-    val = None
-    if match:
-        val = normalize_indonesian_date(match.group(0))
-    return val
+    if not match:
+        return None
+
+    s = preprocess_indonesian_date(match.group(0))
+    return datetime.strptime(s.title(), "%d %B %Y")
 
 def extract_faktur_number_info(text: str) -> str:
     match = re.search(RE_FAKTUR_NUMBER, text)
@@ -241,3 +257,19 @@ def enhance_image_for_qr(img: Image.Image) -> Image.Image:
     img = enhancer.enhance(2.0)
 
     return img
+
+def preprocess_indonesian_date(date_str: str) -> Optional[datetime.date]:
+    """Parse string date formats: dd <bulan indo> yyyy"""
+    s = date_str.strip()
+
+    parts = s.split(" ")
+    if len(parts) != 3:
+        return None
+
+    parts[1] = indonesian_months.get(parts[1].lower(), "")
+    if parts[1] == "":
+        return None
+
+    s = " ".join(parts)
+
+    return datetime.strptime(s.title(), "%d %B %Y")
