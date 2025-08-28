@@ -10,24 +10,61 @@ def normalize_number(value: str) -> Optional[str]:
     digits = re.sub(r"\D", "", value)
     return digits or None
 
-def normalize_date(value: str) -> Optional[str]:
-    if not value:
-        return None
-    # Accept 01/04/2022 or 01-04-2022
-    m = re.match(r"(\d{2})[/-](\d{2})[/-](\d{4})", value.strip())
-    if not m:
-        return None
-    d, mth, y = m.groups()
+def normalize_company(name: str) -> str:
+    raw = re.sub(r"\s+", " ", name).replace(".", " ").strip().upper()
+
+    # match prefix CV atau PT
+    m = re.match(r"^(CV|PT)[\s\.]*", raw)
+    if m:
+        prefix = m.group(1)
+        cleaned = raw[m.end():].strip()
+        return f"{prefix} {cleaned}"
+    return raw
+
+def normalize_idr(amount_str: str) -> float:
+    """
+    Convert Indonesian formatted amount like '36.364.855,00' to int (rupiah).
+    """
+    if not amount_str:
+        return 0.0
+
     try:
-        dt = datetime(int(y), int(mth), int(d))
-        return dt.strftime("%d/%m/%Y")
+        # Remove space
+        amount_str = amount_str.strip()
+
+        # Remove dot for thousands separation
+        amount_str = amount_str.replace(".", "")
+
+        # Replace comma with dot
+        amount_str = amount_str.replace(",", ".")
+
+        # Convert to float
+        amount = float(amount_str)
+
+        return amount
     except ValueError:
-        return None
+        return 0.0
 
-def normalize_npwp(value: str) -> Optional[str]:
-    if not value:
-        return None
-    return normalize_number(value)
+def normalize_indonesian_date(date_str: str):
+    # Mapping bulan Indo → angka
+    months = {
+        "januari": 1,
+        "februari": 2,
+        "maret": 3,
+        "april": 4,
+        "mei": 5,
+        "juni": 6,
+        "juli": 7,
+        "agustus": 8,
+        "september": 9,
+        "oktober": 10,
+        "november": 11,
+        "desember": 12,
+    }
 
-def normalize_faktur_number(value: str) -> Optional[str]:
-    return normalize_number(value)
+    parts = date_str.strip().split()
+    day = int(parts[0])
+    month = months[parts[1].lower()]
+    year = int(parts[2])
+
+    return datetime(year, month, day).date()

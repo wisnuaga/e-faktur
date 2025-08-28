@@ -7,9 +7,9 @@ from typing import Optional, Dict, Union, Tuple, List
 from datetime import datetime
 from app.core.normalizers import (
     normalize_number,
-    normalize_npwp,
-    normalize_faktur_number,
-    normalize_date,
+    normalize_idr,
+    normalize_company,
+    normalize_indonesian_date,
 )
 
 RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
@@ -173,30 +173,6 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
 
     return data
 
-def normalize_idr(amount_str: str) -> float:
-    """
-    Convert Indonesian formatted amount like '36.364.855,00' to int (rupiah).
-    """
-    if not amount_str:
-        return 0.0
-
-    try:
-        # Remove space
-        amount_str = amount_str.strip()
-
-        # Remove dot for thousands separation
-        amount_str = amount_str.replace(".", "")
-
-        # Replace comma with dot
-        amount_str = amount_str.replace(",", ".")
-
-        # Convert to float
-        amount = float(amount_str)
-
-        return amount
-    except ValueError:
-        return 0.0
-
 def extract_dpp_info(text: str) -> float:
     """Extract DPP info from PDF or image file."""
     match = re.search(RE_DPP, text)
@@ -215,38 +191,14 @@ def extract_faktur_date_info(text: str) -> datetime.date:
     match = re.search(RE_FAKTUR_DATE, text)
     val = None
     if match:
-        val = parse_indonesian_date(match.group(0))
+        val = normalize_indonesian_date(match.group(0))
     return val
-
-def parse_indonesian_date(date_str: str):
-    # Mapping bulan Indo → angka
-    months = {
-        "januari": 1,
-        "februari": 2,
-        "maret": 3,
-        "april": 4,
-        "mei": 5,
-        "juni": 6,
-        "juli": 7,
-        "agustus": 8,
-        "september": 9,
-        "oktober": 10,
-        "november": 11,
-        "desember": 12,
-    }
-
-    parts = date_str.strip().split()
-    day = int(parts[0])
-    month = months[parts[1].lower()]
-    year = int(parts[2])
-
-    return datetime(year, month, day).date()
 
 def extract_faktur_number_info(text: str) -> str:
     match = re.search(RE_FAKTUR_NUMBER, text)
     val = ""
     if match:
-        val = re.sub(r'[.-]', '', match.group(1))
+        val = normalize_number(match.group(1))
         if len(val) == 16:
             return val
     return val
@@ -258,7 +210,7 @@ def extract_npwp_info(text: str) -> List[Optional[str]]:
 
     res = []
     for npwp_match in npwp_matches:
-        val = re.sub(r'[.-]', '', npwp_match)
+        val = normalize_number(npwp_match)
         if len(val) != 15:
             val = ""
         res.append(val)
@@ -294,14 +246,3 @@ def extract_tax_subject_info(text: str) -> List[dict]:
         })
 
     return results
-
-def normalize_company(name: str) -> str:
-    raw = re.sub(r"\s+", " ", name).replace(".", " ").strip().upper()
-
-    # match prefix CV atau PT
-    m = re.match(r"^(CV|PT)[\s\.]*", raw)
-    if m:
-        prefix = m.group(1)
-        cleaned = raw[m.end():].strip()
-        return f"{prefix} {cleaned}"
-    return raw
