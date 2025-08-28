@@ -1,10 +1,10 @@
 import os
 from typing import Dict
+from app.services.djp_client import parse_xml_response
 
 
 def get_mock_djp_data() -> Dict[str, str]:
     """Read mock XML data and return parsed DJP response."""
-    from app.services.djp_client import parse_xml_response
     
     mock_path = os.path.join(os.path.dirname(__file__), 'mock.xml')
     try:

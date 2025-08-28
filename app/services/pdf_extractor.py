@@ -9,7 +9,6 @@ from app.core.normalizers import (
     normalize_number,
     normalize_idr,
     normalize_company,
-    normalize_indonesian_date,
 )
 
 RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
@@ -170,9 +169,7 @@ def extract_faktur_date_info(text: str) -> Optional[datetime.date]:
     match = re.search(RE_FAKTUR_DATE, text)
     if not match:
         return None
-
-    s = preprocess_indonesian_date(match.group(0))
-    return datetime.strptime(s.title(), "%d %B %Y")
+    return preprocess_indonesian_date(match.group(0))
 
 def extract_faktur_number_info(text: str) -> str:
     match = re.search(RE_FAKTUR_NUMBER, text)
@@ -272,4 +269,4 @@ def preprocess_indonesian_date(date_str: str) -> Optional[datetime.date]:
 
     s = " ".join(parts)
 
-    return datetime.strptime(s.title(), "%d %B %Y")
+    return datetime.strptime(s.title(), "%d %B %Y").date()
