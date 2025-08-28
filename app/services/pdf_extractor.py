@@ -17,7 +17,7 @@ RE_NAME = r"Nama\s*:\s*(.+)"
 RE_FAKTUR_NUMBER = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
 RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
 RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
-RE_PPN = r"PPN\s*[-=]?\s*[^0-9\n]*([\d\.\,]+)"
+RE_PPN = r"PPN.*?([\d\.]+,\d{2})"
 
 # Extractor
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
@@ -40,8 +40,8 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     data["tanggalFaktur"] = extract_faktur_date_info(text)
 
     # Extract amount information
-    data["jumlahDpp"] = extract_dpp_info(text)
-    data["jumlahPpn"] = extract_dpp_info(text)
+    data["jumlahDpp"] = extract_tax_amount(text, RE_DPP)
+    data["jumlahPpn"] = extract_tax_amount(text, RE_PPN)
 
     return data
 
@@ -143,18 +143,12 @@ def extract_qr_url(content: bytes) -> Optional[str]:
     except Exception as e:
         raise ValueError(f"Failed to extract QR code: {str(e)}")
 
-def extract_dpp_info(text: str) -> float:
-    """Extract DPP info from PDF or image file."""
-    match = re.search(RE_DPP, text)
+def extract_tax_amount(text: str, pattern: str) -> float:
+    """Extract tax value from PDF or image file."""
+    match = re.search(pattern, text)
     if match:
-        return normalize_idr(match.group(1))
-    return 0.0
-
-def extract_ppn_info(text: str) -> float:
-    """Extract PPN info from PDF or image file."""
-    match = re.search(RE_PPN, text)
-    if match:
-        return normalize_idr(match.group(1))
+        val = normalize_idr(match.group(1))
+        return val
     return 0.0
 
 def extract_faktur_date_info(text: str) -> datetime.date:
