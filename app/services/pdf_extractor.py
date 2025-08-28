@@ -3,7 +3,7 @@ import re
 import pdfplumber
 from PIL import Image, ImageEnhance
 from pyzbar.pyzbar import decode
-from typing import Optional, Dict, Union, Tuple
+from typing import Optional, Dict, Union, Tuple, List
 from app.core.normalizers import (
     normalize_number,
     normalize_npwp,
@@ -247,18 +247,21 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     text = extract_text(file_bytes)
     data = {}
 
+    # Extract NPWP numbers
+    data["npwpPenjual"], data["npwpPembeli"] = extract_npwp_info_v2(text)
+
     # Extract seller information
-    data["npwpPenjual"], data["namaPenjual"] = extract_npwp_info(text, "penjual")
+    _, data["namaPenjual"] = extract_npwp_info(text, "penjual")
     
     # Extract buyer information
-    data["npwpPembeli"], data["namaPembeli"] = extract_npwp_info(text, "pembeli")
+    _, data["namaPembeli"] = extract_npwp_info(text, "pembeli")
     
     # Extract faktur information
     data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
     
     # Extract amount information
     data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
-    
+
     return data
 
 def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str], Optional[str]]:
@@ -297,6 +300,20 @@ def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str
             name = name.strip()
     
     return npwp, name
+
+def extract_npwp_info_v2(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract NPWP and name information for either seller or buyer."""
+    # Look for NPWP pattern specifically after "NPWP: "
+    npwp_matches = re.findall(r'NPWP\s*:\s*([0-9.-]+)', text)
+
+    res = []
+    for npwp_match in npwp_matches:
+        val = re.sub(r'[.-]', '', npwp_match)
+        if len(val) != 15:
+            val = ""
+        res.append(val)
+
+    return tuple(res)
 
 def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract faktur number and date information."""
