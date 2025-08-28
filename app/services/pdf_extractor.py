@@ -23,7 +23,8 @@ LABELS = {
 }
 
 RE_NUMERIC = re.compile(r"([\d\.,]+)")
-RE_NPWP = re.compile(r"\b\d{15}\b")
+RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
+RE_NAME = r"Nama\s*:\s*(.+)"
 RE_FAKTUR_NUMBER = re.compile(r"\b\d{16}\b")
 RE_DATE = re.compile(r"\b\d{2}[/-]\d{2}[/-]\d{4}\b")
 
@@ -50,10 +51,6 @@ def extract_text(content: bytes) -> str:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 text = []
                 for page in pdf.pages:
-                    # Extract text from the page
-                    page_text = page.extract_text() or ""
-                    text.append(page_text)
-                    
                     # Try to extract tables if any
                     try:
                         tables = page.extract_tables()
@@ -248,13 +245,14 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     data = {}
 
     # Extract NPWP numbers
-    data["npwpPenjual"], data["npwpPembeli"] = extract_npwp_info_v2(text)
+    npwp_numbers = extract_npwp_info(text)
+    data["npwpPenjual"] = npwp_numbers[0] if len(npwp_numbers) >= 2 else None
+    data["npwpPembeli"] = npwp_numbers[1] if len(npwp_numbers) >= 2 else None
 
-    # Extract seller information
-    _, data["namaPenjual"] = extract_npwp_info(text, "penjual")
-    
-    # Extract buyer information
-    _, data["namaPembeli"] = extract_npwp_info(text, "pembeli")
+    # Extract Buyer and Seller Names
+    tax_subjects = extract_tax_subject_info(text)
+    data["namaPenjual"] = tax_subjects[0]['name'] if len(tax_subjects) >= 2 else None
+    data["namaPembeli"] = tax_subjects[1]['name'] if len(tax_subjects) >= 2 else None
     
     # Extract faktur information
     data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
@@ -264,47 +262,10 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
 
     return data
 
-def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str], Optional[str]]:
-    """Extract NPWP and name information for either seller or buyer."""
-    sections = text.split('\n\n')
-    
-    # Define section indices based on role
-    target_section = 3 if section == "penjual" else 5
-    if len(sections) <= target_section:
-        return None, None
-    
-    section_text = sections[target_section]
-    
-    # Look for NPWP pattern specifically after "NPWP: "
-    npwp_match = re.search(r'NPWP\s*:\s*([0-9.-]+)', section_text)
-    
-    npwp = None
-    if npwp_match:
-        # Get the raw NPWP and remove any existing dots and dashes to normalize it
-        npwp = re.sub(r'[.-]', '', npwp_match.group(1))
-        if len(npwp) != 15:
-            npwp = None
-    
-    # Get name from the same section, looking for "Nama :"
-    name_match = re.search(r'Nama\s*:\s*([^\n]+)', section_text)
-    name = None
-    if name_match:
-        # First clean the value to remove NIK and other unwanted parts
-        name = clean_value(name_match.group(1))
-        if name:
-            # Format company names starting with PT
-            if name.startswith('PT') and not name.startswith('PT '):
-                # Insert space after PT if it's not there
-                name = re.sub(r'^PT(?=[A-Z])', 'PT ', name)
-            # Final cleanup of any remaining artifacts
-            name = name.strip()
-    
-    return npwp, name
-
-def extract_npwp_info_v2(text: str) -> Tuple[Optional[str], Optional[str]]:
+def extract_npwp_info(text: str) -> List[Optional[str]]:
     """Extract NPWP and name information for either seller or buyer."""
     # Look for NPWP pattern specifically after "NPWP: "
-    npwp_matches = re.findall(r'NPWP\s*:\s*([0-9.-]+)', text)
+    npwp_matches = re.findall(RE_NPWP, text)
 
     res = []
     for npwp_match in npwp_matches:
@@ -313,7 +274,49 @@ def extract_npwp_info_v2(text: str) -> Tuple[Optional[str], Optional[str]]:
             val = ""
         res.append(val)
 
-    return tuple(res)
+    return res
+
+
+def extract_tax_subject_info(text: str) -> List[dict]:
+    """Extract NPWP and name info for either seller or buyer.
+       Return list of dicts with {name, is_company, raw}.
+    """
+    name_matches = re.findall(RE_NAME, text, flags=re.IGNORECASE)
+
+    results = []
+    for name_match in name_matches:
+        raw_val = name_match.strip()
+
+        # Detect NIK/Paspor
+        id_card_match = re.search(r"NIK\s*/?\s*Paspor\s*[:\-]*\s*([A-Z0-9]+)", raw_val, flags=re.IGNORECASE)
+        if id_card_match:
+            # human case → cut out everything after NIK/Paspor
+            val = re.sub(r"\s*NIK\s*/?\s*Paspor.*", "", raw_val, flags=re.IGNORECASE).strip()
+            is_company = False
+        else:
+            # likely company (no NIK or only NIK with symbols like :,-)
+            val = re.sub(r"\s*NIK\s*/?\s*Paspor[:,\.\-]*", "", raw_val, flags=re.IGNORECASE).strip()
+            val = normalize_company(val)
+            is_company = True
+
+        results.append({
+            "name": val,
+            "id_number": id_card_match.group(1) if id_card_match else None,
+            "is_company": is_company
+        })
+
+    return results
+
+def normalize_company(name: str) -> str:
+    raw = re.sub(r"\s+", " ", name).replace(".", " ").strip().upper()
+
+    # match prefix CV atau PT
+    m = re.match(r"^(CV|PT)[\s\.]*", raw)
+    if m:
+        prefix = m.group(1)
+        cleaned = raw[m.end():].strip()
+        return f"{prefix} {cleaned}"
+    return raw
 
 def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract faktur number and date information."""
