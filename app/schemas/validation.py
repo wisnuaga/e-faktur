@@ -17,6 +17,7 @@ class ValidatedData(BaseModel):
     tanggalFaktur: Optional[str] = None
     jumlahDpp: Optional[str] = None
     jumlahPpn: Optional[str] = None
+    jumlahPpnBm: Optional[str] = None
 
 class ValidationResults(BaseModel):
     status: Literal["validated_with_deviations", "validated_successfully", "error"]

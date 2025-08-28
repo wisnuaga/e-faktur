@@ -5,7 +5,7 @@ def compare(pdf_data: Dict, djp_data: Dict) -> Dict:
     deviations = []
     fields = [
         "npwpPenjual","namaPenjual","npwpPembeli","namaPembeli",
-        "nomorFaktur","tanggalFaktur","jumlahDpp","jumlahPpn"
+        "nomorFaktur","tanggalFaktur","jumlahDpp","jumlahPpn", "jumlahPpnBm"
     ]
 
     for f in fields:

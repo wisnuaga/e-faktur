@@ -3,45 +3,64 @@ import re
 import pdfplumber
 from PIL import Image, ImageEnhance
 from pyzbar.pyzbar import decode
-from typing import Optional, Dict, Union, Tuple
+from typing import Optional, Dict, List
+from datetime import datetime
 from app.core.normalizers import (
     normalize_number,
-    normalize_npwp,
-    normalize_faktur_number,
-    normalize_date,
+    normalize_idr,
+    normalize_company,
 )
 
-LABELS = {
-    "npwpPenjual": [r"NPWP\s*:", r"NPWP\s*Penjual", r"NPWP\s*PKP\s*Penjual"],
-    "namaPenjual": [r"Nama\s*:", r"Nama\s*Penjual"],
-    "npwpPembeli": [r"NPWP\s*:", r"NPWP\s*Pembeli", r"NPWP\s*Lawan\s*Transaksi"],
-    "namaPembeli": [r"Nama\s*:", r"Nama\s*Pembeli", r"Nama\s*Lawan\s*Transaksi"],
-    "nomorFaktur": [r"Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})"],
-    "tanggalFaktur": [r"JAKARTA SELATAN,\s*", r"Tanggal\s*Faktur"],
-    "jumlahDpp": [r"Dasar Pengenaan Pajak\s*", r"Jumlah\s*DPP", r"DPP\s*Total"],
-    "jumlahPpn": [r"Total PPN\s*", r"Jumlah\s*PPN", r"PPN\s*Total"],
+RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
+RE_NAME = r"Nama\s*:\s*(.+)"
+RE_FAKTUR_NUMBER = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
+RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
+RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
+RE_PPN = r"PPN.*?([\d\.]+,\d{2})"
+RE_PPNBM = r"PPnBM.*?([\d\.]+,\d{2})"
+
+indonesian_months = {
+    "januari": "January",
+    "februari": "February",
+    "maret": "March",
+    "april": "April",
+    "mei": "May",
+    "juni": "June",
+    "juli": "July",
+    "agustus": "August",
+    "september": "September",
+    "oktober": "October",
+    "november": "November",
+    "desember": "December",
 }
 
-RE_NUMERIC = re.compile(r"([\d\.,]+)")
-RE_NPWP = re.compile(r"\b\d{15}\b")
-RE_FAKTUR_NUMBER = re.compile(r"\b\d{16}\b")
-RE_DATE = re.compile(r"\b\d{2}[/-]\d{2}[/-]\d{4}\b")
+# Extractor
+def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
+    """Extract all fields from the PDF or image file."""
+    text = extract_text(file_bytes)
+    print(text)
+    data = {}
 
+    # Extract NPWP numbers
+    npwp_numbers = extract_npwp_info(text)
+    data["npwpPenjual"] = npwp_numbers[0] if len(npwp_numbers) >= 2 else None
+    data["npwpPembeli"] = npwp_numbers[1] if len(npwp_numbers) >= 2 else None
 
-def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
-    """Preprocess image for better OCR results."""
-    # Convert to grayscale
-    img = img.convert('L')
-    
-    # Enhance contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(1.5)
-    
-    # Enhance sharpness
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(1.5)
-    
-    return img
+    # Extract Buyer and Seller Names
+    tax_subjects = extract_tax_subject_info(text)
+    data["namaPenjual"] = tax_subjects[0]['name'] if len(tax_subjects) >= 2 else None
+    data["namaPembeli"] = tax_subjects[1]['name'] if len(tax_subjects) >= 2 else None
+
+    # Extract faktur information
+    data["nomorFaktur"] = extract_faktur_number_info(text)
+    data["tanggalFaktur"] = extract_faktur_date_info(text)
+
+    # Extract amount information
+    data["jumlahDpp"] = extract_tax_amount(text, RE_DPP)
+    data["jumlahPpn"] = extract_tax_amount(text, RE_PPN)
+    data["jumlahPpnBm"] = extract_tax_amount(text, RE_PPNBM)
+
+    return data
 
 def extract_text(content: bytes) -> str:
     """Extract text content from PDF or image file."""
@@ -50,21 +69,18 @@ def extract_text(content: bytes) -> str:
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 text = []
                 for page in pdf.pages:
-                    # Extract text from the page
-                    page_text = page.extract_text() or ""
-                    text.append(page_text)
-                    
                     # Try to extract tables if any
                     try:
-                        tables = page.extract_tables()
-                        if tables:
-                            for table in tables:
-                                table_text = '\n'.join(' '.join(str(cell) for cell in row if cell) for row in table)
-                                if table_text.strip():
-                                    text.append(table_text)
+                        txt = page.extract_text()
+                        if txt:
+                            text.append(txt.strip())
                     except Exception:
                         pass  # Skip if table extraction fails
-                
+
+                # Add PDF text-based validation
+                if not text:
+                    raise Exception("No text provided, please provide PDF text-based")
+
                 final_text = '\n\n'.join(filter(None, text))
                 return final_text
         except Exception as e:
@@ -74,10 +90,10 @@ def extract_text(content: bytes) -> str:
             # For images, use Tesseract OCR
             import pytesseract
             img = Image.open(io.BytesIO(content))
-            
+
             # Preprocess the image
             img = preprocess_image_for_ocr(img)
-            
+
             # Extract text using OCR
             text = pytesseract.image_to_string(img, lang='ind')
             if not text.strip():
@@ -87,87 +103,6 @@ def extract_text(content: bytes) -> str:
             raise ValueError("pytesseract is not installed. Please install it first.")
         except Exception as e:
             raise ValueError(f"Failed to extract text from image: {str(e)}")
-
-def extract_nomor_faktur(text: str) -> Optional[str]:
-    """Extract nomor faktur specifically looking for the pattern after 'Faktur Pajak'"""
-    # First try to find it in the line after "Faktur Pajak"
-    lines = text.split('\n')
-    try:
-        faktur_idx = next(i for i, line in enumerate(lines) if 'Faktur Pajak' in line)
-        
-        # Check next line for the faktur number
-        if faktur_idx + 1 < len(lines):
-            next_line = lines[faktur_idx + 1]
-            
-            # Try the exact pattern we're looking for
-            m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?(070\.000-22\.12345678)', next_line)
-            if m:
-                return re.sub(r'[.-]', '', m.group(1))
-            
-            # If exact pattern not found, try more general pattern
-            m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})', next_line)
-            if m:
-                return re.sub(r'[.-]', '', m.group(1))
-    except StopIteration:
-        pass
-    
-    # If not found in the next line, try searching the whole text
-    for line in lines:
-        # Try exact pattern first
-        m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?(070\.000-22\.12345678)', line)
-        if m:
-            return re.sub(r'[.-]', '', m.group(1))
-        
-        # Try general pattern
-        m = re.search(r'(?:Kode dan Nomor Seri Faktur Pajak\s*[:]?\s*)?([0-9]{3}[.][0-9]{3}[-][0-9]{2}[.][0-9]{8})', line)
-        if m:
-            return re.sub(r'[.-]', '', m.group(1))
-    
-    return None
-
-def _find_after_label(text: str, label_patterns, take_numeric=False) -> Optional[str]:
-    """Find value after a label in text, optionally taking only numeric part."""
-    # Special handling for nomor faktur
-    if "nomorFaktur" in str(label_patterns):
-        return extract_nomor_faktur(text)
-        
-    for pat in label_patterns:
-        m = re.search(pat + r"[:\s]*([^:\n]+)", text, flags=re.IGNORECASE)
-        if m:
-            value = m.group(1) if m.groups() else text[m.end():].split('\n')[0]
-            value = clean_value(value)
-            
-            if take_numeric:
-                nm = RE_NUMERIC.search(value)
-                if nm:
-                    return nm.group(1)
-            else:
-                return value
-                
-    # Special handling for NPWP
-    if "NPWP" in str(label_patterns):
-        # Look for NPWP pattern XX.XXX.XXX.X-XXX.XXX
-        m = re.search(r'(\d{2}[.-]\d{3}[.-]\d{3}[.-]\d{1}[.-]\d{3}[.-]\d{3})', text)
-        if m:
-            # Remove dots and dashes
-            return re.sub(r'[.-]', '', m.group(1))
-            
-    return None
-
-def enhance_image_for_qr(img: Image.Image) -> Image.Image:
-    """Enhance image to improve QR code detection."""
-    # Convert to grayscale
-    img = img.convert('L')
-    
-    # Enhance contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
-    
-    # Enhance sharpness
-    enhancer = ImageEnhance.Sharpness(img)
-    img = enhancer.enhance(2.0)
-    
-    return img
 
 def extract_qr_from_image(img: Image.Image) -> Optional[str]:
     """Try to extract QR code from an image with multiple preprocessing attempts."""
@@ -229,158 +164,119 @@ def extract_qr_url(content: bytes) -> Optional[str]:
     except Exception as e:
         raise ValueError(f"Failed to extract QR code: {str(e)}")
 
+def extract_tax_amount(text: str, pattern: str) -> float:
+    """Extract tax value from PDF or image file."""
+    match = re.search(pattern, text)
+    if match:
+        val = normalize_idr(match.group(1))
+        return val
+    return 0.0
 
-def clean_value(value: str) -> str:
-    """Clean extracted value from common artifacts."""
-    if not value:
-        return value
-    # Remove common prefixes/suffixes
-    value = value.strip(": \t\n")
-    # Remove NIK/Passport and any text after it (including variations of NIK formatting)
-    value = re.sub(r'\s*(?:NIK|NIK/Paspor|NIKIPaspor)[^a-zA-Z]*.*$', '', value, flags=re.IGNORECASE)
-    # Remove any trailing special characters or whitespace
-    value = value.strip('.- \t\n')
-    return value
+def extract_faktur_date_info(text: str) -> Optional[datetime.date]:
+    match = re.search(RE_FAKTUR_DATE, text)
+    if not match:
+        return None
+    return preprocess_indonesian_date(match.group(0))
 
-def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
-    """Extract all fields from the PDF or image file."""
-    text = extract_text(file_bytes)
-    data = {}
+def extract_faktur_number_info(text: str) -> str:
+    match = re.search(RE_FAKTUR_NUMBER, text)
+    val = ""
+    if match:
+        # temporary preprocessing: remove the first 3 digits (XXX.) from faktur number
+        val = match.group(1)[3:] if match.group(1) else match.group(1)
 
-    # Extract seller information
-    data["npwpPenjual"], data["namaPenjual"] = extract_npwp_info(text, "penjual")
-    
-    # Extract buyer information
-    data["npwpPembeli"], data["namaPembeli"] = extract_npwp_info(text, "pembeli")
-    
-    # Extract faktur information
-    data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
-    
-    # Extract amount information
-    data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
-    
-    return data
+        val = normalize_number(val)
+        if len(val) == 16:
+            return val
+    return val
 
-def extract_npwp_info(text: str, section: str = "penjual") -> Tuple[Optional[str], Optional[str]]:
-    """Extract NPWP and name information for either seller or buyer."""
-    sections = text.split('\n\n')
-    
-    # Define section indices based on role
-    target_section = 3 if section == "penjual" else 5
-    if len(sections) <= target_section:
-        return None, None
-    
-    section_text = sections[target_section]
-    
+def extract_npwp_info(text: str) -> List[Optional[str]]:
+    """Extract NPWP information for either seller or buyer."""
     # Look for NPWP pattern specifically after "NPWP: "
-    npwp_match = re.search(r'NPWP\s*:\s*([0-9.-]+)', section_text)
-    
-    npwp = None
-    if npwp_match:
-        # Get the raw NPWP and remove any existing dots and dashes to normalize it
-        npwp = re.sub(r'[.-]', '', npwp_match.group(1))
-        if len(npwp) != 15:
-            npwp = None
-    
-    # Get name from the same section, looking for "Nama :"
-    name_match = re.search(r'Nama\s*:\s*([^\n]+)', section_text)
-    name = None
-    if name_match:
-        # First clean the value to remove NIK and other unwanted parts
-        name = clean_value(name_match.group(1))
-        if name:
-            # Format company names starting with PT
-            if name.startswith('PT') and not name.startswith('PT '):
-                # Insert space after PT if it's not there
-                name = re.sub(r'^PT(?=[A-Z])', 'PT ', name)
-            # Final cleanup of any remaining artifacts
-            name = name.strip()
-    
-    return npwp, name
+    npwp_matches = re.findall(RE_NPWP, text)
 
-def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract faktur number and date information."""
-    # Extract nomor faktur
-    nomor = extract_nomor_faktur(text)
-    if not nomor:
-        m = RE_FAKTUR_NUMBER.search(text)
-        if m:
-            nomor = m.group(0)
-    
-    # Extract date from section 9
-    sections = text.split('\n\n')
-    tanggal = None
-    if len(sections) > 9:
-        section_text = sections[9].strip()
-        if "JAKARTA SELATAN" in section_text.upper():
-            tanggal = format_date_from_text(section_text)
-    
-    # Fallback methods if section 9 doesn't work
-    if not tanggal:
-        # Try other sections
-        for section in sections:
-            if "JAKARTA SELATAN" in section.upper():
-                tanggal = format_date_from_text(section)
-                if tanggal:
-                    break
-        
-        # Try original methods as last resort
-        if not tanggal:
-            raw_date = _find_after_label(text, LABELS["tanggalFaktur"])
-            if raw_date:
-                tanggal = format_date_from_text(raw_date)
-            else:
-                m = RE_DATE.search(text)
-                if m:
-                    tanggal = normalize_date(m.group(0))
-    
-    return (
-        normalize_faktur_number(nomor) if nomor else None,
-        tanggal
-    )
+    res = []
+    for npwp_match in npwp_matches:
+        val = normalize_number(npwp_match)
+        if len(val) != 15:
+            val = ""
+        res.append(val)
 
-def extract_amounts(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract DPP and PPN amounts."""
-    dpp = _find_after_label(text, LABELS["jumlahDpp"], take_numeric=True)
-    ppn = _find_after_label(text, LABELS["jumlahPpn"], take_numeric=True)
-    
-    return (
-        normalize_number(dpp) if dpp else None,
-        normalize_number(ppn) if ppn else None
-    )
+    return res
 
-def format_date_from_text(date_text: str) -> Optional[str]:
-    """Convert date from 'DD MONTH YYYY' format to 'DD/MM/YYYY'."""
-    MONTH_MAP = {
-        'JANUARI': '01', 'JANUARY': '01',
-        'FEBRUARI': '02', 'FEBRUARY': '02',
-        'MARET': '03', 'MARCH': '03',
-        'APRIL': '04',
-        'MEI': '05', 'MAY': '05',
-        'JUNI': '06', 'JUNE': '06',
-        'JULI': '07', 'JULY': '07',
-        'AGUSTUS': '08', 'AUGUST': '08',
-        'SEPTEMBER': '09',
-        'OKTOBER': '10', 'OCTOBER': '10',
-        'NOVEMBER': '11',
-        'DESEMBER': '12', 'DECEMBER': '12'
-    }
-    
-    try:
-        # Remove city name and comma if present
-        date_text = re.sub(r'^.*?,\s*', '', date_text.strip())
-        
-        # Extract components using regex
-        match = re.search(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', date_text.upper())
-        if match:
-            day, month_name, year = match.groups()
-            month = MONTH_MAP.get(month_name.upper())
-            if month:
-                # Ensure day is two digits
-                day = day.zfill(2)
-                return f"{day}/{month}/{year}"
-    except Exception:
-        pass
-    return None
+def extract_tax_subject_info(text: str) -> List[dict]:
+    """Extract name and ID card number info for either seller or buyer.
+       Return list of dicts with {name, is_company, raw}.
+    """
+    name_matches = re.findall(RE_NAME, text, flags=re.IGNORECASE)
 
+    results = []
+    for name_match in name_matches:
+        raw_val = name_match.strip()
 
+        # Detect NIK/Paspor
+        id_card_match = re.search(r"NIK\s*/?\s*Paspor\s*[:\-]*\s*([A-Z0-9]+)", raw_val, flags=re.IGNORECASE)
+        if id_card_match:
+            # human case → cut out everything after NIK/Paspor
+            val = re.sub(r"\s*NIK\s*/?\s*Paspor.*", "", raw_val, flags=re.IGNORECASE).strip()
+            is_company = False
+        else:
+            # likely company (no NIK or only NIK with symbols like :,-)
+            val = re.sub(r"\s*NIK\s*/?\s*Paspor[:,\.\-]*", "", raw_val, flags=re.IGNORECASE).strip()
+            val = normalize_company(val)
+            is_company = True
+
+        results.append({
+            "name": val,
+            "id_number": id_card_match.group(1) if id_card_match else None,
+            "is_company": is_company
+        })
+
+    return results
+
+# Image Preprocessor
+def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
+    """Preprocess image for better OCR results."""
+    # Convert to grayscale
+    img = img.convert('L')
+
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(1.5)
+
+    # Enhance sharpness
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(1.5)
+
+    return img
+
+def enhance_image_for_qr(img: Image.Image) -> Image.Image:
+    """Enhance image to improve QR code detection."""
+    # Convert to grayscale
+    img = img.convert('L')
+
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+
+    # Enhance sharpness
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(2.0)
+
+    return img
+
+def preprocess_indonesian_date(date_str: str) -> Optional[datetime.date]:
+    """Parse string date formats: dd <bulan indo> yyyy"""
+    s = date_str.strip()
+
+    parts = s.split(" ")
+    if len(parts) != 3:
+        return None
+
+    parts[1] = indonesian_months.get(parts[1].lower(), "")
+    if parts[1] == "":
+        return None
+
+    s = " ".join(parts)
+
+    return datetime.strptime(s.title(), "%d %B %Y").date()

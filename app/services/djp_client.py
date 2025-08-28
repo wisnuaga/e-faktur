@@ -1,6 +1,8 @@
 from typing import Dict
 import requests
 import xml.etree.ElementTree as ET
+from datetime import datetime
+from app.core.normalizers import normalize_company
 
 
 def fetch_djp_xml(url: str) -> Dict[str, str]:
@@ -9,13 +11,14 @@ def fetch_djp_xml(url: str) -> Dict[str, str]:
     root = ET.fromstring(resp.text)
     return {
         "npwpPenjual": root.findtext("npwpPenjual"),
-        "namaPenjual": root.findtext("namaPenjual"),
+        "namaPenjual": normalize_company(root.findtext("namaPenjual")),
         "npwpPembeli": root.findtext("npwpLawanTransaksi"),
-        "namaPembeli": root.findtext("namaLawanTransaksi"),
+        "namaPembeli": normalize_company(root.findtext("namaLawanTransaksi")),
         "nomorFaktur": root.findtext("nomorFaktur"),
-        "tanggalFaktur": root.findtext("tanggalFaktur"),
-        "jumlahDpp": root.findtext("jumlahDpp"),
-        "jumlahPpn": root.findtext("jumlahPpn"),
+        "tanggalFaktur": datetime.strptime(root.findtext("tanggalFaktur"), "%d/%m/%Y").date(),
+        "jumlahDpp": float(root.findtext("jumlahDpp")),
+        "jumlahPpn": float(root.findtext("jumlahPpn")),
+        "jumlahPpnBm": float(root.findtext("jumlahPpnBm")),
     }
 
 
@@ -24,11 +27,12 @@ def parse_xml_response(xml_str: str) -> Dict[str, str]:
     root = ET.fromstring(xml_str)
     return {
         "npwpPenjual": root.findtext("npwpPenjual"),
-        "namaPenjual": root.findtext("namaPenjual"),
+        "namaPenjual": normalize_company(root.findtext("namaPenjual")),
         "npwpPembeli": root.findtext("npwpLawanTransaksi"),
-        "namaPembeli": root.findtext("namaLawanTransaksi"),
+        "namaPembeli": normalize_company(root.findtext("namaLawanTransaksi")),
         "nomorFaktur": root.findtext("nomorFaktur"),
-        "tanggalFaktur": root.findtext("tanggalFaktur"),
-        "jumlahDpp": root.findtext("jumlahDpp"),
-        "jumlahPpn": root.findtext("jumlahPpn"),
+        "tanggalFaktur": datetime.strptime(root.findtext("tanggalFaktur"), "%d/%m/%Y").date(),
+        "jumlahDpp": float(root.findtext("jumlahDpp")),
+        "jumlahPpn": float(root.findtext("jumlahPpn")),
+        "jumlahPpnBm": float(root.findtext("jumlahPpnBm")),
     }
