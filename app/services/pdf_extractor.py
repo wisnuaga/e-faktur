@@ -182,7 +182,10 @@ def extract_faktur_number_info(text: str) -> str:
     match = re.search(RE_FAKTUR_NUMBER, text)
     val = ""
     if match:
-        val = normalize_number(match.group(1))
+        # temporary preprocessing: remove the first 3 digits (XXX.) from faktur number
+        val = match.group(1)[3:] if match.group(1) else match.group(1)
+
+        val = normalize_number(val)
         if len(val) == 16:
             return val
     return val
