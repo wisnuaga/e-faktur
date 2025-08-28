@@ -4,6 +4,7 @@ import pdfplumber
 from PIL import Image, ImageEnhance
 from pyzbar.pyzbar import decode
 from typing import Optional, Dict, Union, Tuple, List
+from datetime import datetime
 from app.core.normalizers import (
     normalize_number,
     normalize_npwp,
@@ -25,9 +26,8 @@ LABELS = {
 RE_NUMERIC = re.compile(r"([\d\.,]+)")
 RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
 RE_NAME = r"Nama\s*:\s*(.+)"
-RE_FAKTUR_NUMBER = re.compile(r"\b\d{16}\b")
-RE_FAKTUR_NUMBER2 = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
-RE_DATE = re.compile(r"\b\d{2}[/-]\d{2}[/-]\d{4}\b")
+RE_FAKTUR_NUMBER = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
+RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
 
 
 def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
@@ -54,12 +54,9 @@ def extract_text(content: bytes) -> str:
                 for page in pdf.pages:
                     # Try to extract tables if any
                     try:
-                        tables = page.extract_tables()
-                        if tables:
-                            for table in tables:
-                                table_text = '\n'.join(' '.join(str(cell) for cell in row if cell) for row in table)
-                                if table_text.strip():
-                                    text.append(table_text)
+                        txt = page.extract_text()
+                        if txt:
+                            text.append(txt.strip())
                     except Exception:
                         pass  # Skip if table extraction fails
                 
@@ -257,15 +254,46 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     
     # Extract faktur information
     data["nomorFaktur"] = extract_faktur_number_info(text)
-    # data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
+    data["tanggalFaktur"] = extract_faktur_date_info(text)
     
     # Extract amount information
     data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
 
     return data
 
+def extract_faktur_date_info(text: str) -> datetime.date:
+    match = re.search(RE_FAKTUR_DATE, text)
+    val = None
+    if match:
+        val = parse_indonesian_date(match.group(0))
+    return val
+
+def parse_indonesian_date(date_str: str):
+    # Mapping bulan Indo → angka
+    months = {
+        "januari": 1,
+        "februari": 2,
+        "maret": 3,
+        "april": 4,
+        "mei": 5,
+        "juni": 6,
+        "juli": 7,
+        "agustus": 8,
+        "september": 9,
+        "oktober": 10,
+        "november": 11,
+        "desember": 12,
+    }
+
+    parts = date_str.strip().split()
+    day = int(parts[0])
+    month = months[parts[1].lower()]
+    year = int(parts[2])
+
+    return datetime(year, month, day).date()
+
 def extract_faktur_number_info(text: str) -> str:
-    match = re.search(RE_FAKTUR_NUMBER2, text)
+    match = re.search(RE_FAKTUR_NUMBER, text)
     val = ""
     if match:
         val = re.sub(r'[.-]', '', match.group(1))
@@ -328,47 +356,6 @@ def normalize_company(name: str) -> str:
         cleaned = raw[m.end():].strip()
         return f"{prefix} {cleaned}"
     return raw
-
-def extract_faktur_info(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract faktur number and date information."""
-    # Extract nomor faktur
-    nomor = extract_nomor_faktur(text)
-    if not nomor:
-        m = RE_FAKTUR_NUMBER.search(text)
-        if m:
-            nomor = m.group(0)
-    
-    # Extract date from section 9
-    sections = text.split('\n\n')
-    tanggal = None
-    if len(sections) > 9:
-        section_text = sections[9].strip()
-        if "JAKARTA SELATAN" in section_text.upper():
-            tanggal = format_date_from_text(section_text)
-    
-    # Fallback methods if section 9 doesn't work
-    if not tanggal:
-        # Try other sections
-        for section in sections:
-            if "JAKARTA SELATAN" in section.upper():
-                tanggal = format_date_from_text(section)
-                if tanggal:
-                    break
-        
-        # Try original methods as last resort
-        if not tanggal:
-            raw_date = _find_after_label(text, LABELS["tanggalFaktur"])
-            if raw_date:
-                tanggal = format_date_from_text(raw_date)
-            else:
-                m = RE_DATE.search(text)
-                if m:
-                    tanggal = normalize_date(m.group(0))
-    
-    return (
-        normalize_faktur_number(nomor) if nomor else None,
-        tanggal
-    )
 
 def extract_amounts(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract DPP and PPN amounts."""
