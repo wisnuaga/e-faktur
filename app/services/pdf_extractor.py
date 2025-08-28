@@ -28,6 +28,8 @@ RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
 RE_NAME = r"Nama\s*:\s*(.+)"
 RE_FAKTUR_NUMBER = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
 RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
+RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
+RE_PPN = r"PPN\s*[-=]?\s*[^0-9\n]*([\d\.\,]+)"
 
 
 def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
@@ -240,6 +242,7 @@ def clean_value(value: str) -> str:
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     """Extract all fields from the PDF or image file."""
     text = extract_text(file_bytes)
+    print(text)
     data = {}
 
     # Extract NPWP numbers
@@ -257,9 +260,41 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     data["tanggalFaktur"] = extract_faktur_date_info(text)
     
     # Extract amount information
-    data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
+    data["jumlahDpp"] = extract_dpp_info(text)
+    # data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
 
     return data
+
+def normalize_idr(amount_str: str) -> float:
+    """
+    Convert Indonesian formatted amount like '36.364.855,00' to int (rupiah).
+    """
+    if not amount_str:
+        return 0.0
+
+    try:
+        # Remove space
+        amount_str = amount_str.strip()
+
+        # Remove dot for thousands separation
+        amount_str = amount_str.replace(".", "")
+
+        # Replace comma with dot
+        amount_str = amount_str.replace(",", ".")
+
+        # Convert to float
+        amount = float(amount_str)
+
+        return amount
+    except ValueError:
+        return 0.0
+
+def extract_dpp_info(text: str) -> float:
+    """Extract DPP info from PDF or image file."""
+    match = re.search(RE_DPP, text)
+    if match:
+        return normalize_idr(match.group(1))
+    return 0.0
 
 def extract_faktur_date_info(text: str) -> datetime.date:
     match = re.search(RE_FAKTUR_DATE, text)
@@ -314,7 +349,6 @@ def extract_npwp_info(text: str) -> List[Optional[str]]:
         res.append(val)
 
     return res
-
 
 def extract_tax_subject_info(text: str) -> List[dict]:
     """Extract name and ID card number info for either seller or buyer.
