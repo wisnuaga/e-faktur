@@ -26,6 +26,7 @@ RE_NUMERIC = re.compile(r"([\d\.,]+)")
 RE_NPWP = r"NPWP\s*:\s*(\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3})"
 RE_NAME = r"Nama\s*:\s*(.+)"
 RE_FAKTUR_NUMBER = re.compile(r"\b\d{16}\b")
+RE_FAKTUR_NUMBER2 = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d{3}-\d{2}\.\d{8})"
 RE_DATE = re.compile(r"\b\d{2}[/-]\d{2}[/-]\d{4}\b")
 
 
@@ -255,15 +256,25 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     data["namaPembeli"] = tax_subjects[1]['name'] if len(tax_subjects) >= 2 else None
     
     # Extract faktur information
-    data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
+    data["nomorFaktur"] = extract_faktur_number_info(text)
+    # data["nomorFaktur"], data["tanggalFaktur"] = extract_faktur_info(text)
     
     # Extract amount information
     data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
 
     return data
 
+def extract_faktur_number_info(text: str) -> str:
+    match = re.search(RE_FAKTUR_NUMBER2, text)
+    val = ""
+    if match:
+        val = re.sub(r'[.-]', '', match.group(1))
+        if len(val) == 16:
+            return val
+    return val
+
 def extract_npwp_info(text: str) -> List[Optional[str]]:
-    """Extract NPWP and name information for either seller or buyer."""
+    """Extract NPWP information for either seller or buyer."""
     # Look for NPWP pattern specifically after "NPWP: "
     npwp_matches = re.findall(RE_NPWP, text)
 
@@ -278,7 +289,7 @@ def extract_npwp_info(text: str) -> List[Optional[str]]:
 
 
 def extract_tax_subject_info(text: str) -> List[dict]:
-    """Extract NPWP and name info for either seller or buyer.
+    """Extract name and ID card number info for either seller or buyer.
        Return list of dicts with {name, is_company, raw}.
     """
     name_matches = re.findall(RE_NAME, text, flags=re.IGNORECASE)
