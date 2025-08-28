@@ -38,6 +38,7 @@ indonesian_months = {
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     """Extract all fields from the PDF or image file."""
     text = extract_text(file_bytes)
+    print(text)
     data = {}
 
     # Extract NPWP numbers
@@ -75,6 +76,10 @@ def extract_text(content: bytes) -> str:
                             text.append(txt.strip())
                     except Exception:
                         pass  # Skip if table extraction fails
+
+                # Add PDF text-based validation
+                if not text:
+                    raise Exception("No text provided, please provide PDF text-based")
 
                 final_text = '\n\n'.join(filter(None, text))
                 return final_text
