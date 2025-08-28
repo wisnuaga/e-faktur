@@ -17,6 +17,7 @@ RE_FAKTUR_NUMBER = r"Kode\s+dan\s+Nomor\s+Seri\s+Faktur\s+Pajak\s*:\s*(\d{3}\.\d
 RE_FAKTUR_DATE = r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
 RE_DPP = r"Dasar\s+Pengenaan\s+Pajak\s+([\d\.\,]+)"
 RE_PPN = r"PPN.*?([\d\.]+,\d{2})"
+RE_PPNBM = r"PPnBM.*?([\d\.]+,\d{2})"
 
 indonesian_months = {
     "januari": "January",
@@ -56,6 +57,7 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     # Extract amount information
     data["jumlahDpp"] = extract_tax_amount(text, RE_DPP)
     data["jumlahPpn"] = extract_tax_amount(text, RE_PPN)
+    data["jumlahPpnBm"] = extract_tax_amount(text, RE_PPNBM)
 
     return data
 

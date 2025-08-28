@@ -18,6 +18,7 @@ def fetch_djp_xml(url: str) -> Dict[str, str]:
         "tanggalFaktur": datetime.strptime(root.findtext("tanggalFaktur"), "%d/%m/%Y").date(),
         "jumlahDpp": float(root.findtext("jumlahDpp")),
         "jumlahPpn": float(root.findtext("jumlahPpn")),
+        "jumlahPpnBm": float(root.findtext("jumlahPpnBm")),
     }
 
 
@@ -33,4 +34,5 @@ def parse_xml_response(xml_str: str) -> Dict[str, str]:
         "tanggalFaktur": datetime.strptime(root.findtext("tanggalFaktur"), "%d/%m/%Y").date(),
         "jumlahDpp": float(root.findtext("jumlahDpp")),
         "jumlahPpn": float(root.findtext("jumlahPpn")),
+        "jumlahPpnBm": float(root.findtext("jumlahPpnBm")),
     }
