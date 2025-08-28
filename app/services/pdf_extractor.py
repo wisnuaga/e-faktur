@@ -226,7 +226,6 @@ def extract_qr_url(content: bytes) -> Optional[str]:
     except Exception as e:
         raise ValueError(f"Failed to extract QR code: {str(e)}")
 
-
 def clean_value(value: str) -> str:
     """Clean extracted value from common artifacts."""
     if not value:
@@ -242,7 +241,6 @@ def clean_value(value: str) -> str:
 def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     """Extract all fields from the PDF or image file."""
     text = extract_text(file_bytes)
-    print(text)
     data = {}
 
     # Extract NPWP numbers
@@ -261,7 +259,7 @@ def extract_fields(file_bytes: bytes) -> Dict[str, Optional[str]]:
     
     # Extract amount information
     data["jumlahDpp"] = extract_dpp_info(text)
-    # data["jumlahDpp"], data["jumlahPpn"] = extract_amounts(text)
+    data["jumlahPpn"] = extract_dpp_info(text)
 
     return data
 
@@ -292,6 +290,13 @@ def normalize_idr(amount_str: str) -> float:
 def extract_dpp_info(text: str) -> float:
     """Extract DPP info from PDF or image file."""
     match = re.search(RE_DPP, text)
+    if match:
+        return normalize_idr(match.group(1))
+    return 0.0
+
+def extract_ppn_info(text: str) -> float:
+    """Extract PPN info from PDF or image file."""
+    match = re.search(RE_PPN, text)
     if match:
         return normalize_idr(match.group(1))
     return 0.0
